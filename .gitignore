@@ -1,0 +1,40 @@
+# ===== 依赖目录 =====
+node_modules/
+backend/.venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ===== 环境变量（含密钥，不提交）=====
+.env
+backend/.env
+
+# ===== 上传文件 =====
+uploads/
+backend/uploads/
+
+# ===== 构建产物 =====
+dist/
+build/
+*.log
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+
+# ===== 数据库 =====
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== 临时文件 =====
+*.tmp
+*.temp

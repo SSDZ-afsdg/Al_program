@@ -1,0 +1,127 @@
+/* ==========================================================================
+   global.css —— 全局样式表
+   定义项目的主题色变量、基础重置样式、通用布局工具类
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. CSS 变量定义（主题色板）
+   集中管理颜色，全站统一引用，方便后续换肤或调整
+   -------------------------------------------------------------------------- */
+:root {
+  /* 主色调：深蓝色 —— 传递专业、稳重、值得信赖的法律行业气质 */
+  --color-primary: #1a3a5c;
+
+  /* 主色调深色变体：用于 hover 加深、渐变背景的深端 */
+  --color-primary-dark: #122b45;
+
+  /* 主色调浅色变体：用于主色调的浅色背景（如卡片浅蓝底） */
+  --color-primary-light: #2c5585;
+
+  /* 点缀色：金色 —— 用于按钮、图标、高亮文字，提升页面精致感 */
+  --color-gold: #c9a96e;
+
+  /* 金色深色变体：用于金色元素 hover 状态 */
+  --color-gold-dark: #b08f52;
+
+  /* 文字颜色：主文字（深灰近黑） */
+  --color-text-main: #2c3e50;
+
+  /* 文字颜色：次要文字（中灰），用于描述性文字 */
+  --color-text-secondary: #6b7c93;
+
+  /* 背景色：页面浅灰底色 */
+  --color-bg-page: #f5f7fa;
+
+  /* 背景色：纯白，用于卡片 */
+  --color-bg-white: #ffffff;
+
+  /* 边框色：浅灰分割线 */
+  --color-border: #e4e8ee;
+
+  /* 阴影：卡片默认阴影 */
+  --shadow-card: 0 4px 16px rgba(26, 58, 92, 0.08);
+
+  /* 阴影：卡片悬浮时的加深阴影 */
+  --shadow-card-hover: 0 8px 24px rgba(26, 58, 92, 0.16);
+
+  /* 页面主内容区最大宽度 */
+  --container-width: 1200px;
+}
+
+/* --------------------------------------------------------------------------
+   2. 基础重置样式（Reset）
+   消除浏览器默认样式的差异，保证各浏览器渲染一致
+   -------------------------------------------------------------------------- */
+
+/* 所有元素统一盒模型：宽高计算包含 padding 和 border */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* 清除 body 默认外边距，设置全局字体与文字颜色 */
+body {
+  margin: 0;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--color-text-main);
+  background-color: var(--color-bg-page);
+  /* 开启字体抗锯齿，让文字更平滑清晰 */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 重置标题标签的默认外边距，由各组件自行控制间距 */
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+}
+
+/* 重置段落标签的默认外边距 */
+p {
+  margin: 0;
+}
+
+/* 去除链接默认的下划线和颜色，由各组件自行定义 */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 清除列表默认的项目符号与内边距 */
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --------------------------------------------------------------------------
+   3. 通用布局工具类
+   提供页面级常用的布局类名，减少重复代码
+   -------------------------------------------------------------------------- */
+
+/* 页面主内容容器：水平居中 + 最大宽度限制，保证大屏下内容不会拉得过宽 */
+.page-container {
+  max-width: var(--container-width);
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* 通用的页面区块标题样式：各功能页面顶部的大标题 */
+.page-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-align: center;
+}
+
+/* 金色装饰下划线：配合页面标题使用，增加视觉层次 */
+.gold-divider {
+  width: 56px;
+  height: 4px;
+  margin: 16px auto 0;
+  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-dark));
+  border-radius: 2px;
+}

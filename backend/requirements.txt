@@ -1,0 +1,32 @@
+# ==========================================================================
+# requirements.txt —— 后端 Python 依赖清单
+# 安装命令：pip install -r requirements.txt
+# ==========================================================================
+
+# -------- Web 框架 --------
+fastapi==0.115.6          # FastAPI 主框架
+uvicorn[standard]==0.34.0 # ASGI 服务器（standard 附带性能增强组件）
+python-multipart==0.0.20  # 表单与文件上传支持（FastAPI 的 File/Form 依赖需要）
+
+# -------- 数据库 ORM 与迁移 --------
+SQLAlchemy==2.0.36        # ORM 框架（使用 2.0 新式声明式写法）
+alembic==1.14.0           # 数据库迁移工具
+PyMySQL==1.1.1            # 纯 Python 实现的 MySQL 驱动
+cryptography==44.0.0      # PyMySQL 认证插件 caching_sha2_password 所需
+
+# -------- 数据校验 --------
+pydantic==2.10.4          # Pydantic V2：请求/响应数据校验与序列化
+pydantic-settings==2.7.1  # 管理 .env 环境变量配置
+email-validator==2.2.0    # Pydantic EmailStr 邮箱格式校验依赖
+
+# -------- 认证与密码加密 --------
+python-jose[cryptography]==3.3.0  # JWT 令牌的生成与解析
+passlib==1.7.4                    # 密码哈希统一封装库
+bcrypt==4.0.1                     # bcrypt 哈希算法（锁定 4.0.x 以兼容 passlib 1.7.4）
+
+# -------- 文件解析 --------
+python-docx==1.1.2        # 解析 .docx Word 文档
+PyPDF2==3.0.1             # 解析 PDF 文档
+
+# -------- HTTP 客户端 --------
+httpx==0.28.1             # 异步 HTTP 客户端，用于调用 FastGPT 等外部 AI 接口

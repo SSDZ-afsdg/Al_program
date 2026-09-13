@@ -1,0 +1,8 @@
+# 此文件用于在 Git 中保留空目录
+# Alembic 数据库迁移版本脚本（versions）存放在此目录
+#
+# 常用命令（在 backend 目录下执行）：
+#   alembic revision --autogenerate -m "变更说明"   # 根据模型变化自动生成迁移脚本
+#   alembic upgrade head                            # 升级到最新版本
+#   alembic downgrade -1                            # 回退一个版本
+#   alembic history                                 # 查看迁移历史
