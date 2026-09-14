@@ -1,7 +1,8 @@
 """
 user.py —— 用户相关的 Pydantic 模型
 
-包含：注册请求、登录请求、用户信息输出、登录令牌响应。
+包含：注册请求、登录请求、用户信息输出、登录令牌响应、
+      用户资料更新、密码修改请求、头像上传响应、使用统计输出。
 Pydantic V2 使用 model_config / field_validator 等新式 API。
 """
 
@@ -49,6 +50,10 @@ class UserOut(BaseModel):
     id: int = Field(..., description="用户ID")
     username: str = Field(..., description="用户名")
     email: str = Field(..., description="邮箱")
+    avatar_url: Optional[str] = Field(default=None, description="头像URL")
+    phone: Optional[str] = Field(default=None, description="手机号")
+    role: str = Field(default="user", description="角色")
+    last_login_at: Optional[datetime] = Field(default=None, description="最近登录时间")
     created_at: datetime = Field(..., description="注册时间")
 
 
@@ -63,3 +68,69 @@ class TokenResponse(BaseModel):
     expires_in: Optional[int] = Field(default=None, description="令牌有效期（秒）")
     # 登录用户的基本信息
     user: UserOut = Field(..., description="用户信息")
+
+
+class UserUpdate(BaseModel):
+    """用户资料更新请求体（个人中心修改昵称/邮箱/手机号）。
+
+    所有字段均为可选，只更新前端提交的字段，避免覆盖未提交项。
+    """
+
+    username: Optional[str] = Field(default=None, min_length=3, max_length=50, description="用户名")
+    email: Optional[EmailStr] = Field(default=None, description="邮箱")
+    phone: Optional[str] = Field(default=None, max_length=20, description="手机号")
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: Optional[str]) -> Optional[str]:
+        """校验用户名：去除首尾空格，不允许包含空白字符。"""
+        if value is None:
+            return value
+        value = value.strip()
+        if any(ch.isspace() for ch in value):
+            raise ValueError("用户名不能包含空格")
+        return value
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        """校验手机号格式：允许为空，非空时只允许 11 位数字（中国大陆手机号）。"""
+        if value is None or value == "":
+            return None
+        value = value.strip()
+        if not value.isdigit() or len(value) != 11:
+            raise ValueError("手机号必须为 11 位数字")
+        return value
+
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码请求体：需要校验旧密码，提交新密码。"""
+
+    # 旧密码：服务端与数据库哈希比对
+    old_password: str = Field(..., description="旧密码")
+    # 新密码：至少 6 位，与旧密码不能相同（差异化校验在路由层做）
+    new_password: str = Field(..., min_length=6, max_length=64, description="新密码（至少6位）")
+
+
+class AvatarUploadOut(BaseModel):
+    """头像上传成功后返回的数据。"""
+
+    # 头像访问 URL（前端可直接拼接 baseURL 后用于 <img src>)
+    avatar_url: str = Field(..., description="头像访问URL")
+
+
+class UserStatsOut(BaseModel):
+    """用户使用统计输出模型。"""
+
+    # 对话总数
+    conversation_count: int = Field(default=0, description="对话总数")
+    # 消息总数（含用户与 AI）
+    message_count: int = Field(default=0, description="消息总数")
+    # 文书生成总数
+    document_count: int = Field(default=0, description="文书生成总数")
+    # 合同上传总数
+    contract_count: int = Field(default=0, description="合同上传总数")
+    # 已完成审查的合同数
+    reviewed_contract_count: int = Field(default=0, description="已审查合同数")
+    # 最近 7 天每日活跃次数（用于绘制趋势图）
+    recent_activity: list = Field(default_factory=list, description="近7天活跃数据")

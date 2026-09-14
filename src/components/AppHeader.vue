@@ -9,10 +9,16 @@ const { user, isLoggedIn, logout } = useAuth()
 
 function goLogin() { router.push('/login') }
 
-function handleLogout() {
-  logout()
-  ElMessage.success('已退出登录')
-  router.push('/')
+function goProfile() { router.push('/profile') }
+
+function handleCommand(command) {
+  if (command === 'profile') {
+    goProfile()
+  } else if (command === 'logout') {
+    logout()
+    ElMessage.success('已退出登录')
+    router.push('/')
+  }
 }
 </script>
 
@@ -34,14 +40,21 @@ function handleLogout() {
 
         <div class="auth-area">
           <el-button v-if="!isLoggedIn" text class="login-btn" @click="goLogin">登录</el-button>
-          <el-dropdown v-else @command="handleLogout">
+          <el-dropdown v-else @command="handleCommand">
             <span class="user-name">
               <el-icon><UserFilled /></el-icon>
               {{ user?.username }}
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item command="profile">
+                  <el-icon><User /></el-icon>
+                  个人中心
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -52,7 +65,8 @@ function handleLogout() {
 </template>
 
 <script>
-export default { name: 'AppHeader' }
+import { UserFilled, User, SwitchButton } from '@element-plus/icons-vue'
+export default { name: 'AppHeader', components: { UserFilled, User, SwitchButton } }
 </script>
 
 <style scoped>

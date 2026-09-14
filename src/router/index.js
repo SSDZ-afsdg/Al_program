@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   { path: '/', name: 'Home', meta: { title: '首页 - 法宝AI法律助手' }, component: () => import('@/views/HomePage.vue') },
   { path: '/login', name: 'Login', meta: { title: '登录 - 法宝AI法律助手' }, component: () => import('@/views/Login.vue') },
+  { path: '/profile', name: 'Profile', meta: { title: '个人中心 - 法宝AI法律助手', requiresAuth: true }, component: () => import('@/views/Profile.vue') },
   { path: '/ai-consult', name: 'AiConsult', meta: { title: 'AI法律咨询 - 法宝AI法律助手', requiresAuth: true }, component: () => import('@/views/AiConsult.vue') },
   { path: '/doc-generate', name: 'DocGenerate', meta: { title: '文书生成 - 法宝AI法律助手', requiresAuth: true }, component: () => import('@/views/DocGenerate.vue') },
   { path: '/contract-review', name: 'ContractReview', meta: { title: '合同审查 - 法宝AI法律助手', requiresAuth: true }, component: () => import('@/views/ContractReview.vue') },

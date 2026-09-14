@@ -2,13 +2,13 @@
 user.py —— 用户模型
 
 对应数据库表：users
-存储用户账号信息（用户名、邮箱、加密后的密码）。
+存储用户账号信息（用户名、邮箱、加密后的密码、头像、手机号、角色等）。
 """
 
 from datetime import datetime
 from typing import List
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -36,6 +36,31 @@ class User(Base):
     # 密码哈希值：只存哈希不存明文，长度预留 255
     hashed_password: Mapped[str] = mapped_column(
         String(255), nullable=False, comment="密码哈希值"
+    )
+
+    # 头像 URL：可空，用户未上传时为 None；存储相对路径或完整 URL
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, default=None, comment="头像URL"
+    )
+
+    # 手机号：可空，支持后续绑定；最长 20 字符
+    phone: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None, comment="手机号"
+    )
+
+    # 账号状态：True 启用 / False 禁用（管理员可禁用违规账号）
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, comment="账号是否启用"
+    )
+
+    # 角色：user 普通用户 / admin 管理员（为后续管理后台预留）
+    role: Mapped[str] = mapped_column(
+        String(20), default="user", nullable=False, comment="角色：user/admin"
+    )
+
+    # 最近登录时间：登录成功时刷新，可空（注册后从未登录的情况）
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None, comment="最近登录时间"
     )
 
     # 创建时间：由数据库端 CURRENT_TIMESTAMP 生成默认值

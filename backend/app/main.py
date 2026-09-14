@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, chat, contract, document
+from app.api import auth, chat, contract, document, stats
 from app.config import settings
 from app.core.exceptions import register_exception_handlers
 
@@ -51,6 +51,7 @@ app.include_router(auth.router, prefix=API_PREFIX)       # 认证模块 /api/v1/
 app.include_router(chat.router, prefix=API_PREFIX)       # AI咨询模块 /api/v1/chat
 app.include_router(document.router, prefix=API_PREFIX)   # 文书模块 /api/v1/documents
 app.include_router(contract.router, prefix=API_PREFIX)   # 合同模块 /api/v1/contracts
+app.include_router(stats.router, prefix=API_PREFIX)      # 使用统计模块 /api/v1/stats
 
 # -------- 挂载上传文件静态目录 --------
 # 使上传的合同文件可通过 /uploads/文件名 直接访问（如需要）

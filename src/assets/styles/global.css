@@ -61,6 +61,12 @@
 }
 
 /* 清除 body 默认外边距，设置全局字体与文字颜色 */
+html,
+body {
+  /* 兜底：任何子页面内容意外超宽时也不出现整页横向滚动条，避免顶栏错位 */
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;

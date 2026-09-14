@@ -46,6 +46,15 @@ export function useAuth() {
     clear()
   }
 
+  /**
+   * 更新本地缓存的用户信息（个人中心修改资料/上传头像后调用）
+   * @param {Object} user - 后端返回的 UserOut 对象
+   */
+  function setUser(user) {
+    state.user = user
+    persist()
+  }
+
   return {
     user: computed(() => state.user),
     token: computed(() => state.token),
@@ -53,5 +62,6 @@ export function useAuth() {
     login,
     register,
     logout,
+    setUser,
   }
 }

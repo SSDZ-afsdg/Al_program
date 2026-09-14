@@ -5,17 +5,18 @@ chat.py —— AI 法律咨询接口
 接口清单：
 - GET    /conversations               获取当前用户的对话列表
 - POST   /conversations               新建对话
+- PATCH  /conversations/{id}          重命名指定对话
 - DELETE /conversations/{id}          删除指定对话
-- GET    /conversations/{id}/messages 获取指定对话的消息列表
+- GET    /conversations/{id}/messages 获取指定对话的消息列表（支持游标分页）
 - POST   /conversations/{id}/messages 发送消息并获取 AI 回复
 
 注意：除新建/列表外，所有操作都会校验对话归属权，防止越权访问他人数据。
 """
 
 import json
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -27,6 +28,7 @@ from app.models import Conversation, Message, User
 from app.schemas.chat import (
     ConversationCreate,
     ConversationOut,
+    ConversationUpdate,
     MessageCreate,
     MessageOut,
 )
@@ -96,6 +98,28 @@ def create_conversation(
     )
 
 
+@router.patch("/conversations/{conversation_id}", summary="重命名对话")
+def rename_conversation(
+    conversation_id: int,
+    payload: ConversationUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """修改指定对话的标题（用于会话列表中的重命名操作）。"""
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+
+    # 更新标题（schema 层已校验非空、长度上限）
+    conversation.title = payload.title.strip()
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+
+    return success_response(
+        data=ConversationOut.model_validate(conversation).model_dump(mode="json"),
+        message="对话已重命名",
+    )
+
+
 @router.delete("/conversations/{conversation_id}", summary="删除对话")
 def delete_conversation(
     conversation_id: int,
@@ -110,23 +134,50 @@ def delete_conversation(
     return success_response(message="对话删除成功")
 
 
-@router.get("/conversations/{conversation_id}/messages", summary="获取对话消息列表")
+@router.get("/conversations/{conversation_id}/messages", summary="获取对话消息列表（游标分页）")
 def list_messages(
     conversation_id: int,
+    limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
+    before_id: Optional[int] = Query(default=None, description="游标：只返回 id 小于该值的更早消息"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取指定对话下的全部消息，按时间正序（方便前端按对话流渲染）。"""
+    """
+    游标分页获取消息列表（用于"加载更早消息"）：
+    - 不传 before_id：返回最新的 limit 条消息（按时间正序返回）；
+    - 传 before_id：返回 id 小于 before_id 的更早 limit 条消息（按时间正序返回）。
+
+    响应额外携带 has_more 字段，前端据此决定是否继续显示"加载更早消息"按钮。
+    """
     conversation = _get_owned_conversation(db, conversation_id, current_user)
 
-    # 显式按创建时间正序查询消息
-    messages = db.scalars(
+    # 构造查询：先按 id 倒序取最新的 limit 条，再反转回时间正序返回给前端
+    stmt = (
         select(Message)
         .where(Message.conversation_id == conversation.id)
-        .order_by(Message.created_at, Message.id)
-    ).all()
+    )
+    if before_id is not None:
+        stmt = stmt.where(Message.id < before_id)
+    stmt = stmt.order_by(desc(Message.id)).limit(limit)
 
-    data = [MessageOut.model_validate(msg).model_dump(mode="json") for msg in messages]
+    page_msgs = list(db.scalars(stmt).all())
+    # 倒序取出后反转为正序（created_at 升序），符合聊天窗口的展示顺序
+    page_msgs.reverse()
+
+    # 是否还有更早的消息：以本页最早一条消息的 id 为界继续向前探测
+    has_more = False
+    if page_msgs:
+        earliest_id = page_msgs[0].id
+        has_more = db.scalar(
+            select(Message.id)
+            .where(Message.conversation_id == conversation.id, Message.id < earliest_id)
+            .limit(1)
+        ) is not None
+
+    data = {
+        "items": [MessageOut.model_validate(msg).model_dump(mode="json") for msg in page_msgs],
+        "has_more": has_more,
+    }
     return success_response(data=data)
 
 

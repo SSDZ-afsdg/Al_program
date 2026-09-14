@@ -3,15 +3,20 @@ contract.py —— 合同审查接口
 
 路由前缀：/api/v1/contracts
 接口清单：
-- POST /upload       上传合同文件（.docx / .pdf），解析并保存原文
-- POST /review/{id}  对已上传的合同执行 AI 风险审查
-- GET  /list         获取当前用户的审查历史列表
+- POST /upload           上传合同文件（.docx / .pdf），解析并保存原文
+- POST /review/{id}      对已上传的合同执行 AI 风险审查
+- GET  /list             获取当前用户的审查历史列表
+- GET  /{id}             获取合同记录详情（含原文全文，供前端风险定位高亮）
+- GET  /{id}/export-pdf  将审查报告导出为 PDF 文件下载
 """
 
 import uuid
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -24,6 +29,7 @@ from app.schemas.common import success_response
 from app.schemas.contract import ContractUploadOut
 from app.services.contract_service import review_contract
 from app.utils.file_handler import extract_text
+from app.utils.pdf_report import build_review_report_pdf
 
 # 全部接口需要登录
 router = APIRouter(
@@ -181,3 +187,72 @@ def list_contracts(
         )
 
     return success_response(data=data)
+
+
+@router.get("/{contract_id}", summary="获取合同记录详情")
+def get_contract(
+    contract_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取合同记录详情（含原文全文与审查结果）。
+
+    用途：前端展示"合同原文 + 风险条款定位高亮"视图时，
+    需要完整原文文本（上传接口只返回 200 字预览，不满足定位需求）。
+    """
+    contract = _get_owned_contract(db, contract_id, current_user)
+
+    return success_response(
+        data={
+            "id": contract.id,
+            "file_name": contract.file_name,
+            "original_text": contract.original_text,
+            "review_result": contract.review_result,
+            "created_at": contract.created_at.isoformat() if contract.created_at else None,
+        }
+    )
+
+
+@router.get("/{contract_id}/export-pdf", summary="导出审查报告 PDF")
+def export_review_pdf(
+    contract_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    将合同审查结果导出为 PDF 报告：
+    1. 校验记录归属与审查状态（未审查的记录无法导出报告）；
+    2. 调用 reportlab 在内存中生成排版美观的审查报告；
+    3. 以文件流返回，浏览器触发下载。
+    """
+    contract = _get_owned_contract(db, contract_id, current_user)
+
+    # 尚未审查的记录没有报告内容可导出
+    if not contract.review_result:
+        raise BizException(code=400, message="该合同尚未完成审查，无法导出报告")
+
+    # 生成 PDF 二进制内容（内存中完成，不落盘）
+    try:
+        pdf_bytes = build_review_report_pdf(
+            review_result=contract.review_result,
+            file_name=contract.file_name,
+            reviewed_at=contract.created_at or datetime.now(),
+        )
+    except RuntimeError as e:
+        # 中文字体缺失等环境问题，返回可读的业务错误提示
+        raise BizException(code=500, message=str(e))
+
+    # 下载文件名：审查报告_{原文件名去扩展名}.pdf
+    stem = Path(contract.file_name).stem or f"contract_{contract.id}"
+    download_name = f"审查报告_{stem}.pdf"
+    # 中文文件名按 RFC 5987 用 filename* 编码，避免浏览器乱码
+    quoted_name = quote(download_name)
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted_name}",
+        },
+    )

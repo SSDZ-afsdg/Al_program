@@ -2,10 +2,10 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
-import { generateDocument, listDocuments, getDocument } from '@/api/document'
-
-marked.setOptions({ breaks: true, gfm: true })
+// 统一使用 renderMarkdown（已集成 DOMPurify XSS 清洗）
+import { renderMarkdown } from '@/utils/markdown'
+import { generateDocument, listDocuments, getDocument, exportDocumentWord } from '@/api/document'
+import { saveBlobAs, throwIfBlobError } from '@/utils/download'
 
 const TYPE_OPTIONS = ['起诉状', '答辩状', '律师函', '授权委托书']
 
@@ -51,11 +51,14 @@ const generating = ref(false)
 const resultContent = ref('')
 const progress = ref(0)          // 模拟进度 0~100
 const progressTimer = ref(null)  // 进度定时器
+// 当前展示的文书记录 ID（生成成功或加载历史后赋值，用于导出 Word）
+const currentDocId = ref(null)
+// Word 导出请求进行中（按钮 loading 状态）
+const exporting = ref(false)
 
-/** 将 Markdown 文本渲染为 HTML */
+/** 将 Markdown 文本安全渲染为 HTML（已通过 DOMPurify 清洗） */
 function renderMd(content) {
-  if (!content) return ''
-  return marked.parse(content)
+  return renderMarkdown(content)
 }
 
 /** 启动模拟进度条：缓慢增长到 90%，请求完成后跳到 100% */
@@ -80,10 +83,12 @@ async function handleGenerate() {
   if (!hasContent) { ElMessage.warning('请至少填写一项表单内容'); return }
   generating.value = true
   resultContent.value = ''   // 清空旧结果，显示加载状态
+  currentDocId.value = null  // 清空旧记录 ID
   startProgress()
   try {
     const res = await generateDocument({ doc_type: docType.value, form_data: currentForm.value })
     resultContent.value = res.generated_content
+    currentDocId.value = res.id  // 记录新文书 ID，供下载 Word 使用
     finishProgress()
     ElMessage.success('文书生成成功')
     loadHistory()
@@ -97,14 +102,22 @@ async function handleGenerate() {
 function copyResult() {
   navigator.clipboard.writeText(resultContent.value).then(() => ElMessage.success('已复制到剪贴板'))
 }
-function downloadResult() {
-  const blob = new Blob([resultContent.value], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${docType.value}_${Date.now()}.txt`
-  a.click()
-  URL.revokeObjectURL(url)
+
+/** 下载当前文书为 Word 文件（后端排版生成 .docx） */
+async function downloadWord() {
+  if (!currentDocId.value) { ElMessage.warning('当前文书尚未保存，无法导出'); return }
+  exporting.value = true
+  try {
+    const blob = await exportDocumentWord(currentDocId.value)
+    await throwIfBlobError(blob)
+    saveBlobAs(blob, `${docType.value}_${currentDocId.value}.docx`)
+    ElMessage.success('Word 文档已开始下载')
+  } catch (e) {
+    // 拦截器已对接口错误给出中文提示；此处兜底覆盖下载环节的意外异常
+    if (!e?.response) ElMessage.error('Word 导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
 }
 
 const history = ref([])
@@ -118,6 +131,7 @@ async function viewHistory(item) {
     docType.value = res.doc_type
     formData[res.doc_type] = { ...res.form_data }
     resultContent.value = res.generated_content
+    currentDocId.value = res.id  // 加载历史后同样记录 ID，供下载 Word 使用
     ElMessage.info(`已加载历史记录 #${item.id}`)
   } catch (e) { /* 全局已提示 */ }
 }
@@ -147,7 +161,7 @@ onMounted(loadHistory)
         <h2 class="panel-title"><el-icon class="title-icon"><Document /></el-icon>生成结果</h2>
         <div class="result-actions">
           <el-button :icon="CopyDocument" @click="copyResult" :disabled="!resultContent">复制</el-button>
-          <el-button :icon="Download" @click="downloadResult" :disabled="!resultContent">下载</el-button>
+          <el-button type="primary" :icon="Download" :loading="exporting" @click="downloadWord" :disabled="!resultContent || !currentDocId">下载 Word</el-button>
         </div>
       </div>
       <div v-if="generating" class="result-loading">
@@ -189,16 +203,23 @@ export default { name: 'DocGenerate' }
 
 <style scoped>
 .doc-page { display: flex; gap: 20px; padding: 24px; max-width: 1280px; margin: 0 auto; min-height: calc(100vh - 64px - 200px); }
-.form-panel, .result-panel { background: #fff; border-radius: 10px; box-shadow: var(--shadow-card); padding: 24px; }
+.form-panel, .result-panel { background: #fff; border-radius: 10px; box-shadow: var(--shadow-card); padding: 24px; min-width: 0; }
 .form-panel { flex: 0 0 420px; }
-.result-panel { flex: 1; display: flex; flex-direction: column; }
+.result-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
 .panel-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; color: var(--color-primary); margin-bottom: 20px; }
 .title-icon { color: var(--color-gold); }
 .generate-btn { width: 100%; margin-top: 8px; --el-button-bg-color: var(--color-primary); --el-button-border-color: var(--color-primary); --el-button-hover-bg-color: var(--color-primary-light); --el-button-hover-border-color: var(--color-primary-light); }
 
 .result-header { display: flex; align-items: center; justify-content: space-between; }
-.result-content { flex: 1; background: #f7f9fc; border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; line-height: 1.9; font-size: 14px; overflow-y: auto; min-height: 300px; max-height: 500px; }
+/* 主操作按钮统一主题色（深蓝底、悬停浅蓝） */
+.result-actions .el-button--primary {
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: var(--color-primary-light);
+  --el-button-hover-border-color: var(--color-primary-light);
+}
+.result-content { flex: 1; background: #f7f9fc; border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; line-height: 1.9; font-size: 14px; overflow-y: auto; overflow-x: hidden; min-height: 300px; max-height: 500px; min-width: 0; word-break: break-word; }
 .result-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); min-height: 300px; }
 .empty-icon { color: var(--color-primary); opacity: 0.4; margin-bottom: 12px; }
 
@@ -227,13 +248,13 @@ export default { name: 'DocGenerate' }
 .md-body :deep(code) { background: #f0f3f7; padding: 1px 5px; border-radius: 3px; font-size: 13px; color: #c0392b; }
 .md-body :deep(hr) { border: none; border-top: 1px dashed var(--color-border); margin: 14px 0; }
 
-.history-section { margin-top: 20px; border-top: 1px solid var(--color-border); padding-top: 16px; }
+.history-section { margin-top: 20px; border-top: 1px solid var(--color-border); padding-top: 16px; min-width: 0; }
 .history-title { font-size: 15px; font-weight: 600; color: var(--color-text-main); margin-bottom: 12px; }
-.history-list { max-height: 180px; overflow-y: auto; }
-.history-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+.history-list { max-height: 180px; overflow-y: auto; min-width: 0; }
+.history-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 6px; cursor: pointer; transition: background 0.2s; min-width: 0; }
 .history-item:hover { background: #f0f3f7; }
 .h-type { flex: 0 0 80px; font-size: 13px; color: var(--color-primary); font-weight: 600; }
-.h-preview { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--color-text-secondary); }
+.h-preview { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--color-text-secondary); }
 .h-time { flex: 0 0 140px; font-size: 12px; color: #999; text-align: right; }
 .empty-tip { color: var(--color-text-secondary); font-size: 13px; text-align: center; padding: 12px; }
 

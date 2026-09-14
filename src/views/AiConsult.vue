@@ -2,14 +2,15 @@
 <script setup>
 import { ref, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { marked } from 'marked'
+// 统一使用 renderMarkdown（已集成 DOMPurify XSS 清洗）
+import { renderMarkdown } from '@/utils/markdown'
 import {
-  listConversations, createConversation, deleteConversation,
+  listConversations, createConversation, updateConversation, deleteConversation,
   listMessages, sendMessageStream,
 } from '@/api/chat'
 
-// 配置 marked：关闭换行不渲染（让 \n 正常换行），开启代码高亮等
-marked.setOptions({ breaks: true, gfm: true })
+// 每页加载的消息条数（游标分页）
+const PAGE_SIZE = 20
 
 const conversations = ref([])
 const currentId = ref(null)
@@ -19,18 +20,35 @@ const sending = ref(false)
 const loadingConv = ref(false)
 const loadingMsg = ref(false)
 
+// ---- 历史消息分页状态 ----
+const hasMore = ref(false)        // 是否还有更早的消息
+const loadingEarlier = ref(false) // "加载更早消息"请求进行中
+
 const msgContainer = ref(null)
 
-/** 将 Markdown 文本渲染为 HTML（供 v-html 使用） */
+/** 将 Markdown 文本安全渲染为 HTML（供 v-html 使用，已通过 DOMPurify 清洗） */
 function renderMd(content) {
-  if (!content) return ''
-  return marked.parse(content)
+  return renderMarkdown(content)
 }
 
 function scrollToBottom() {
   nextTick(() => {
     if (msgContainer.value) msgContainer.value.scrollTop = msgContainer.value.scrollHeight
   })
+}
+
+/** 将 ISO 时间格式化为会话列表展示文案（今天显示时分，今年显示月日，更早显示完整日期） */
+function formatTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const sameDay = d.toDateString() === now.toDateString()
+  if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const sameYear = d.getFullYear() === now.getFullYear()
+  if (sameYear) return `${d.getMonth() + 1}月${d.getDate()}日`
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
 
 async function loadConversations() {
@@ -46,11 +64,44 @@ async function loadConversations() {
 async function selectConversation(id) {
   currentId.value = id
   messages.value = []
+  hasMore.value = false
   loadingMsg.value = true
   try {
-    messages.value = await listMessages(id)
+    // 只加载最新一页消息，更早的通过"加载更早消息"按钮按需拉取
+    const res = await listMessages(id, { limit: PAGE_SIZE })
+    messages.value = res.items || []
+    hasMore.value = !!res.has_more
     scrollToBottom()
   } finally { loadingMsg.value = false }
+}
+
+/**
+ * 加载更早的历史消息（游标分页）。
+ * 插入到列表头部后，需要把滚动位置锚定在"原来的第一条消息"上，
+ * 避免用户正在阅读的内容发生跳动。
+ */
+async function loadEarlier() {
+  if (!hasMore.value || loadingEarlier.value || !messages.value.length) return
+  loadingEarlier.value = true
+  try {
+    const container = msgContainer.value
+    // 记录加载前的滚动高度与第一条消息的偏移，用于加载后恢复视觉位置
+    const prevHeight = container ? container.scrollHeight : 0
+
+    const beforeId = messages.value[0].id
+    const res = await listMessages(currentId.value, { limit: PAGE_SIZE, before_id: beforeId })
+
+    // 旧消息插入到列表头部（保持时间正序排列）
+    messages.value = [...(res.items || []), ...messages.value]
+    hasMore.value = !!res.has_more
+
+    // 等待 DOM 更新后，将滚动位置锚定回原来可见的第一条消息
+    nextTick(() => {
+      if (container) {
+        container.scrollTop = container.scrollHeight - prevHeight
+      }
+    })
+  } finally { loadingEarlier.value = false }
 }
 
 async function handleCreateConversation() {
@@ -59,6 +110,25 @@ async function handleCreateConversation() {
     conversations.value.unshift(conv)
     selectConversation(conv.id)
   } catch (e) { /* 全局已提示 */ }
+}
+
+/** 重命名对话：弹窗输入新标题，成功后同步更新左侧列表 */
+async function handleRenameConversation(conv) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的对话标题', '重命名对话', {
+      inputValue: conv.title,
+      inputPattern: /\S+/,
+      inputErrorMessage: '标题不能为空',
+      maxLength: 100,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+    })
+    const updated = await updateConversation(conv.id, { title: value.trim() })
+    // 原地更新列表项标题（避免整列表刷新造成闪烁）
+    const target = conversations.value.find((c) => c.id === conv.id)
+    if (target) target.title = updated.title
+    ElMessage.success('重命名成功')
+  } catch (e) { /* 取消或全局已提示 */ }
 }
 
 async function handleDeleteConversation(conv) {
@@ -97,6 +167,13 @@ async function handleSend() {
       onDone() {
         sending.value = false
         scrollToBottom()
+        // 有新消息后，把当前会话移到列表顶部（与后端按 updated_at 排序保持一致）
+        const idx = conversations.value.findIndex((c) => c.id === currentId.value)
+        if (idx > 0) {
+          const [conv] = conversations.value.splice(idx, 1)
+          conv.updated_at = new Date().toISOString()
+          conversations.value.unshift(conv)
+        }
       },
       onError(errMsg) {
         // 出错时把已拼接的内容保留，并追加错误提示
@@ -125,8 +202,14 @@ onMounted(loadConversations)
       <el-button type="primary" class="new-conv-btn" :icon="Plus" @click="handleCreateConversation">新建对话</el-button>
       <div v-loading="loadingConv" class="conv-list">
         <div v-for="conv in conversations" :key="conv.id" class="conv-item" :class="{ active: conv.id === currentId }" @click="selectConversation(conv.id)">
-          <span class="conv-title" :title="conv.title">{{ conv.title }}</span>
-          <el-icon class="del-btn" @click.stop="handleDeleteConversation(conv)"><Delete /></el-icon>
+          <div class="conv-main">
+            <span class="conv-title" :title="conv.title">{{ conv.title }}</span>
+            <span class="conv-time">{{ formatTime(conv.updated_at) }}</span>
+          </div>
+          <div class="conv-actions">
+            <el-icon class="op-btn rename-btn" title="重命名" @click.stop="handleRenameConversation(conv)"><Edit /></el-icon>
+            <el-icon class="op-btn del-btn" title="删除" @click.stop="handleDeleteConversation(conv)"><Delete /></el-icon>
+          </div>
         </div>
         <p v-if="!conversations.length && !loadingConv" class="empty-tip">暂无对话，点击上方「新建对话」开始咨询</p>
       </div>
@@ -144,7 +227,21 @@ onMounted(loadConversations)
           <p class="empty-title">开始您的法律咨询</p>
           <p class="empty-desc">点击左侧「新建对话」，向 AI 提问法律问题</p>
         </div>
-        <div v-for="(msg, idx) in messages" :key="idx" class="msg-item" :class="msg.role">
+
+        <!-- 历史消息分页：加载更早消息（置于列表顶部） -->
+        <div v-if="messages.length" class="load-earlier">
+          <el-button
+            v-if="hasMore"
+            text
+            size="small"
+            class="earlier-btn"
+            :loading="loadingEarlier"
+            @click="loadEarlier"
+          >加载更早的消息</el-button>
+          <span v-else class="no-earlier">已经是最早的消息啦</span>
+        </div>
+
+        <div v-for="(msg, idx) in messages" :key="msg.id || idx" class="msg-item" :class="msg.role">
           <el-icon class="msg-avatar"><User v-if="msg.role === 'user'" /><Service v-else /></el-icon>
           <div class="msg-bubble" :class="{ 'md-body': msg.role === 'assistant' }">
             <template v-if="msg.role === 'assistant'">
@@ -167,7 +264,7 @@ onMounted(loadConversations)
 </template>
 
 <script>
-import { Plus, Delete, User, Service, Promotion, ChatDotRound } from '@element-plus/icons-vue'
+import { Plus, Delete, Edit, User, Service, Promotion, ChatDotRound } from '@element-plus/icons-vue'
 export default { name: 'AiConsult' }
 </script>
 
@@ -185,15 +282,31 @@ export default { name: 'AiConsult' }
 }
 .conv-list { flex: 1; overflow-y: auto; }
 .conv-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 12px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; transition: background 0.2s;
+  padding: 10px 12px; margin-bottom: 6px; border-radius: 8px; cursor: pointer;
+  transition: background 0.2s; position: relative;
 }
 .conv-item:hover { background: #f0f3f7; }
-.conv-item.active { background: rgba(26,58,92,0.08); color: var(--color-primary); font-weight: 600; }
-.conv-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 8px; }
-.del-btn { opacity: 0; color: #c0392b; transition: opacity 0.2s; }
-.conv-item:hover .del-btn { opacity: 1; }
+.conv-item.active { background: rgba(26,58,92,0.08); }
+.conv-item.active .conv-title { color: var(--color-primary); font-weight: 600; }
+/* 标题行：标题 + 时间同一行，时间靠右 */
+.conv-main { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.conv-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.conv-time { flex-shrink: 0; font-size: 12px; color: #a0aab6; }
+/* 操作按钮组：默认隐藏，hover 时浮现 */
+.conv-actions { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; gap: 6px; align-items: center; padding-left: 16px; background: linear-gradient(90deg, transparent, #f0f3f7 30%); }
+.conv-item:hover .conv-actions { display: flex; }
+.conv-item.active:hover .conv-actions { background: linear-gradient(90deg, transparent, rgba(26,58,92,0.08) 30%); }
+.op-btn { font-size: 14px; cursor: pointer; transition: transform 0.15s; }
+.op-btn:hover { transform: scale(1.15); }
+.rename-btn { color: var(--color-primary); }
+.del-btn { color: #c0392b; }
 .empty-tip { text-align: center; color: var(--color-text-secondary); font-size: 13px; padding: 24px 8px; line-height: 1.6; }
+
+/* 加载更早消息 */
+.load-earlier { text-align: center; padding-bottom: 10px; }
+.earlier-btn { color: var(--color-primary); }
+.earlier-btn:hover { color: var(--color-primary-light); }
+.no-earlier { font-size: 12px; color: #b8c0cb; }
 
 .chat-area { flex: 1; display: flex; flex-direction: column; background: #fff; }
 .chat-header { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--color-border); font-size: 16px; font-weight: 600; color: var(--color-primary); }

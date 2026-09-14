@@ -17,6 +17,15 @@ class ConversationCreate(BaseModel):
     )
 
 
+class ConversationUpdate(BaseModel):
+    """重命名对话请求体。"""
+
+    # 新标题：必填且不能为空白串，最长 100 字符
+    title: str = Field(
+        ..., min_length=1, max_length=100, description="新的对话标题"
+    )
+
+
 class MessageCreate(BaseModel):
     """发送消息请求体。"""
 

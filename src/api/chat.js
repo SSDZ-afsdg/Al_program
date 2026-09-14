@@ -9,12 +9,23 @@ export function createConversation(data = {}) {
   return request({ url: '/chat/conversations', method: 'post', data })
 }
 
+/** 重命名对话（PATCH） */
+export function updateConversation(id, data) {
+  return request({ url: `/chat/conversations/${id}`, method: 'patch', data })
+}
+
 export function deleteConversation(id) {
   return request({ url: `/chat/conversations/${id}`, method: 'delete' })
 }
 
-export function listMessages(id) {
-  return request({ url: `/chat/conversations/${id}/messages`, method: 'get' })
+/**
+ * 游标分页获取消息列表
+ * @param {number} id - 对话 ID
+ * @param {object} params - { limit?: 20, before_id?: number }（before_id 用于加载更早消息）
+ * @returns {Promise<{items: Array, has_more: boolean}>}
+ */
+export function listMessages(id, params = {}) {
+  return request({ url: `/chat/conversations/${id}/messages`, method: 'get', params })
 }
 
 export function sendMessage(id, data) {

@@ -29,6 +29,11 @@ service.interceptors.request.use(
 // 响应拦截器
 service.interceptors.response.use(
   (response) => {
+    // 文件流响应（responseType: 'blob'，用于 Word/PDF 导出下载）：
+    // 不做 {code, message, data} 解包，直接返回 Blob 交给调用方保存
+    if (response.config.responseType === 'blob') {
+      return response.data
+    }
     const res = response.data
     // 业务状态码非 200 视为失败
     if (res.code && res.code !== 200) {
@@ -42,8 +47,23 @@ service.interceptors.response.use(
     }
     return res.data
   },
-  (error) => {
-    const msg = error.response?.data?.message || error.message || '网络异常，请稍后重试'
+  // 注意：文件流接口失败时错误响应体同样是 Blob，需要异步读取才能拿到后端 message，
+  // 因此错误回调声明为 async，避免出现"只弹一句英文、用户以为没反应"的体验
+  async (error) => {
+    let msg = error.response?.data?.message || error.message || '网络异常，请稍后重试'
+
+    // blob 请求失败：错误体是 Blob（FastAPI/全局异常处理器返回的 JSON），
+    // 同步访问 .message 得到 undefined，这里读出文本解析出真实错误信息
+    const errData = error.response?.data
+    if (errData instanceof Blob && errData.type && errData.type.includes('application/json')) {
+      try {
+        const errObj = JSON.parse(await errData.text())
+        msg = errObj.message || msg
+      } catch (_) {
+        /* 错误体不是合法 JSON 时沿用默认提示 */
+      }
+    }
+
     ElMessage.error(msg)
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY)
